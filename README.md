@@ -1,2 +1,2 @@
 # 2026-patch-3-steamlit
-hello git
+2026 patch 3조 steamlit 입문
