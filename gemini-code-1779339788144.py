@@ -1,78 +1,85 @@
 import streamlit as st
 import numpy as np
+import pandas as pd
 
 # 0. 웹 페이지 레이아웃을 넓게 설정
 st.set_page_config(page_title="실시간 공동 픽셀 캔버스", layout="wide", page_icon="🎨")
 
 st.title("🎨 실시간 공동 100x100 픽셀 캔버스")
-st.caption("모든 접속자가 하나의 캔버스를 공유합니다. 색을 고르고 픽셀을 클릭해 보세요!")
+st.caption("모든 접속자가 하나의 캔버스를 공유합니다. 왼쪽 도구상자에서 색을 고르고 좌표에 칠해 보세요!")
 
 # -------------------------------------------------------------
-# 1. 전역 공유 데이터 초기화 (st.shared_state)
-# 기존 st.session_state와 달리 모든 접속자가 이 상태를 '공유'합니다.
+# 1. 전역 공유 데이터 설정 (@st.cache_resource)
+# 이 내부에 저장되는 데이터는 모든 사용자가 공유하며, 앱이 재실행되어도 유지됩니다.
 # -------------------------------------------------------------
-# 100x100 크기의 캔버스 공간 생성 (초기값은 모두 흰색 '#FFFFFF')
-if "canvas" not in st.shared_state:
-    st.shared_state.canvas = np.full((100, 100), "#FFFFFF", dtype=object)
+@st.cache_resource
+def get_shared_canvas():
+    # 100x100 크기의 흰색('#FFFFFF') 도화지 생성
+    return np.full((100, 100), "#FFFFFF", dtype=object)
+
+# 공유 캔버스 가져오기
+shared_canvas = get_shared_canvas()
+
 
 # -------------------------------------------------------------
-# 2. 사이드바 컨트롤러 (색상 선택 및 도구)
+# 2. 사이드바 도구 상자
 # -------------------------------------------------------------
 st.sidebar.header("🎨 도구 상자")
 
 # 사용자가 칠할 색상 선택
 picked_color = st.sidebar.color_picker("칠할 색상을 고르세요", "#9A00FF")
 
-# 현재 좌표 입력 (스트림릿 표에서 클릭으로 입력받기 위함)
 st.sidebar.markdown("---")
-st.sidebar.subheader("📍 좌표 직접 입력")
-row_input = st.sidebar.number_input("행 (Y축: 0~99)", min_value=0, max_value=99, value=50)
-col_input = st.sidebar.number_input("열 (X축: 0~99)", min_value=0, max_value=99, value=50)
+st.sidebar.subheader("📍 좌표 입력 후 색칠")
 
+# 100x100 격자이므로 0~99까지 입력받음
+row_input = st.sidebar.number_input("행 (Y축 좌표: 0~99)", min_value=0, max_value=99, value=50)
+col_input = st.sidebar.number_input("열 (X축 좌표: 0~99)", min_value=0, max_value=99, value=50)
+
+# 색칠하기 버튼을 누르면 공유 도화지의 해당 좌표 색상을 변경
 if st.sidebar.button("🎨 선택한 좌표에 색칠하기"):
-    st.shared_state.canvas[row_input, col_input] = picked_color
+    shared_canvas[row_input, col_input] = picked_color
+    st.toast(f"({row_input}, {col_input}) 좌표에 색을 칠했습니다!", icon="✅")
     st.rerun()
 
-# 캔버스 초기화 버튼 (테스트용)
+# 캔버스 초기화 버튼
 if st.sidebar.button("🗑️ 캔버스 전체 초기화"):
-    st.shared_state.canvas = np.full((100, 100), "#FFFFFF", dtype=object)
+    shared_canvas[:] = "#FFFFFF" # 기존 배열 내용을 모두 흰색으로 덮어씀
+    st.toast("캔버스가 초기화되었습니다.", icon="🗑️")
     st.rerun()
 
 
 # -------------------------------------------------------------
-# 3. 처리 및 출력 (캔버스 그리기)
+# 3. 데이터 시각화 및 편집 (캔버스 그리기)
 # -------------------------------------------------------------
-# 스트림릿의 st.data_editor를 이용하면 100x100 칸을 셀처럼 보여주고 
-# 사용자가 직접 클릭하거나 상호작용할 수 있습니다.
-st.subheader("🖼️ 마우스로 칸을 더블클릭하여 수정하거나, 왼쪽 좌표를 이용하세요!")
+st.subheader("🖼️ 현재 캔버스 상황")
+st.info("💡 팁: 왼쪽 도구상자에서 좌표를 입력해 색을 칠하거나, 아래 표의 셀을 더블클릭해 색상 코드(예: #FF0000)를 직접 수정할 수도 있습니다.")
 
-# Pandas 데이터프레임으로 변환하여 화면에 출력
-import pandas as pd
-df_canvas = pd.DataFrame(st.shared_state.canvas)
+# Numpy 배열을 Pandas 데이터프레임으로 변환하여 출력
+df_canvas = pd.DataFrame(shared_canvas)
 
-# 사용자가 표(Grid)를 직접 수정했을 때 변동사항을 감지하는 에디터 적용
+# 사용자가 표를 직접 수정하는 경우를 위한 에디터
 edited_data = st.data_editor(
     df_canvas,
     hide_index=False,
     use_container_width=True,
-    height=600
+    height=550
 )
 
-# 만약 사용자가 화면의 표를 직접 더블클릭해서 값을 텍스트(예: #FF0000)로 수정했다면 전역 데이터에 반영
+# 사용자가 화면의 표를 직접 수정했다면 공유 도화지에 즉시 동기화
 if edited_data is not None:
-    # 변경된 셀 정보 추적
-    st.shared_state.canvas = edited_data.values
+    shared_canvas[:] = edited_data.values
 
 
 # -------------------------------------------------------------
 # 4. 실시간 동기화 (Auto Refresh)
-# 내가 아무것도 안 해도 다른 사람이 그린 걸 3초마다 자동으로 불러옵니다.
+# 다른 사람이 그린 내용을 3초마다 자동으로 감지하여 내 화면에 업데이트합니다.
 # -------------------------------------------------------------
 st_fragment = st.fragment(run_every=3)
 
 @st_fragment
 def auto_refresh():
-    # 3초마다 이 함수 내부가 실행되면서 화면의 캔버스 데이터를 최신화합니다.
+    # 3초마다 이 백그라운드 함수가 돌면서 화면을 최신 공유 데이터 상태로 유지합니다.
     pass
 
 auto_refresh()
